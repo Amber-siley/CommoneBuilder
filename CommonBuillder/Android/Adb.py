@@ -198,6 +198,9 @@ class Device(Adb):
             return None
         else:
             return None
+    
+    def kill_app(self, package_name: str):
+        return self.execute(self.device_id, "shell", "am", "force-stop", package_name)
 
     def convertImg(self, img_bytes) -> MatLike:
         img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_ANYCOLOR)
