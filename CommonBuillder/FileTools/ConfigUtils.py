@@ -84,6 +84,8 @@ class IniConfig:
                     section_name = tmp_section_name.group("section")
                 if not self._configs:
                     self._configs[section_name] = {}
+                if section_name not in self._configs.keys():
+                    self._configs[section_name] = {}
 
                 if tmp_option := re.search(self._option_rule, line):
                     option = tmp_option.group("option")
@@ -186,7 +188,7 @@ class TxtConfig(IniConfig):
         super().__init__(path, prefix, chain, other)
 
     def init_config_rule(self):
-        self._section_rule = r"^\[(?P<section>.*[^\s])\]^"
+        self._section_rule = r"^\[(?P<section>.*[^\s])\]$"
         self._option_rule = r"(?P<prefix>)(?P<option>[^\n:]*[^\s])(?P<chain>\s*:\s*)(?P<value>.*[^\s])(?P<other>\s*)"
         self._fistword_jumpstrs = ["\n", "/"]
 
