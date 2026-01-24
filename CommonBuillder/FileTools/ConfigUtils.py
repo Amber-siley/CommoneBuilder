@@ -5,8 +5,6 @@ from json import dumps, load
 from os.path import isfile
 from typing import Any, Iterator
 
-from cv2 import add
-
 from .File import FileManage
 
 DEFAULT_SECTION = "default"

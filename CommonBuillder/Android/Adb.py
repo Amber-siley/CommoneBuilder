@@ -2,6 +2,7 @@ import asyncio
 import base64
 import math
 import os
+from pdb import run
 import subprocess
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
@@ -17,9 +18,10 @@ from ..FileTools.File import FileManage, UrlManage
 class Adb:
     ADB_TOOLS_URL = "https://googledownloads.cn/android/repository/platform-tools-latest-windows.zip"
 
-    def __init__(self, adb_path: Optional[str] = None, max_workers: int = 10):
+    def __init__(self, adb_path: Optional[str] = None, connect_port: int = 7555, max_workers: int = 10):
         self.adb_path = FileManage(adb_path).file_path if adb_path else None
         self.max_workers = max_workers
+        self.connect_port = connect_port
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.semaphore = asyncio.Semaphore(max_workers)
         self.startupinfo = subprocess.STARTUPINFO()
@@ -34,11 +36,17 @@ class Adb:
 
     def ready_env(self):
         if self.adb_path:
+            self.connenct(self.connect_port)
             return
         unzip_path = FileManage(UrlManage.dowload(self.ADB_TOOLS_URL)).unzip(
             retain=False
         )
         self.adb_path = os.path.join(unzip_path, "adb.exe")
+        self.connenct(self.connect_port)
+
+    def connenct(self, port: int):
+        cmd = [self.adb_path, "connect", f"127.0.0.1:{port}"]
+        return self.run(cmd)
 
     async def execute_command_async(self, device_id, *command):
         async with self.semaphore:
@@ -46,6 +54,11 @@ class Adb:
             return await loop.run_in_executor(
                 self.executor, self.execute, device_id, command
             )
+
+    def run(self, cmd: list[str]):
+        return subprocess.check_output(
+            cmd, startupinfo=self.startupinfo, stderr=subprocess.STDOUT
+        )
 
     def execute(self, device_id: str, *command):
         cmd = [self.adb_path, "-s", device_id] + list(command)
@@ -56,9 +69,9 @@ class Adb:
     async def get_devices_async(self):
         async with self.semaphore:
             loop = asyncio.get_event_loop()
-            return await loop.run_in_executor(self.executor, self.get_devices)
+            return await loop.run_in_executor(self.executor, self.get_device_names)
 
-    def get_devices(self) -> list[str]:
+    def get_device_names(self) -> list[str]:
         try:
             info = subprocess.check_output(
                 [self.adb_path, "devices"], startupinfo=self.startupinfo
@@ -142,7 +155,7 @@ class Device(Adb):
     def height(self) -> int:
         return self.size[1]
 
-    async def screenshot(self):
+    async def screenshot_async(self):
         img_bytes = await self.execute_command_async(
             self.device_id, "exec-out", "screencap", "-p"
         )
