@@ -3,7 +3,7 @@ from abc import abstractmethod
 from copy import deepcopy
 from json import dumps, load
 from os.path import isfile
-from typing import Any, Iterator
+from typing import Any, Iterator, Union
 
 from .File import FileManage
 
@@ -35,15 +35,22 @@ class Entry:
 
 class IniConfig:
     """ini文件实现\n
-    继承后必须实现的方法：ini_config_rule"""
+    继承后必须实现的方法：ini_config_rule
+    
+    example: 
+    ; comment
+    [section]
+    option = value
+    """
 
     def __init__(
-        self, path, prefix: str = "", chain: str = "=", other: str = ""
+        self, path: str = None, prefix: str = "", chain: str = "=", other: str = ""
     ) -> None:
         self.path = path
         self._configs: dict[str, dict[str, Entry]] = {}
         self._index_to_location: dict[int, dict[str, str]] = {}
-        self.init_configs()
+        if path:
+            self.init_configs()
         self._change_index = set()
         self._fistword_jumpstrs = ["\n"]
         self.prefix = prefix
@@ -58,6 +65,28 @@ class IniConfig:
 
         return configs
 
+    def merge(self, *args: Union["IniConfig", "TxtConfig", "CfgConfig", "JsonConfig"]):
+        for config in args:
+            configs = config.configs()
+            for sec in configs.keys():
+                for opt in configs[sec].keys():
+                    if sec not in self._configs.keys():
+                        self._configs[sec] = {}
+                    if opt not in self._configs[sec].keys():
+                        entry = config.get_entry(sec, opt)
+                        entry.index = -1
+                        entry.chain = self.chain
+                        entry.prefix = self.prefix
+                        entry.other = self.other
+                        self._configs[sec][opt] = entry
+                    else:
+                        entry = config.get_entry(sec, opt)
+                        entry.index = -1
+                        entry.chain = self.chain
+                        entry.prefix = self.prefix
+                        entry.other = self.other
+                        self._configs[config.path][opt] = entry
+    
     @abstractmethod
     def init_config_rule(self):
         """
@@ -170,8 +199,15 @@ class IniConfig:
 
 
 class CfgConfig(IniConfig):
+    """
+    example:
+    # comment
+    section {
+        option = value
+    }
+    """
     def __init__(
-        self, path, prefix: str = "", chain: str = "=", other: str = ""
+        self, path: str = None, prefix: str = "", chain: str = "=", other: str = ""
     ) -> None:
         super().__init__(path, prefix, chain, other)
 
@@ -182,8 +218,14 @@ class CfgConfig(IniConfig):
 
 
 class TxtConfig(IniConfig):
+    """
+    example:
+    / comment
+    [section]
+    option: value
+    """
     def __init__(
-        self, path, prefix: str = "", chain: str = ":", other: str = ""
+        self, path: str = None, prefix: str = "", chain: str = ":", other: str = ""
     ) -> None:
         super().__init__(path, prefix, chain, other)
 
@@ -228,6 +270,18 @@ class Config:
         else:
             raise ValueError("文件路径错误")
 
+    @staticmethod
+    def void_config(type: str):
+        match type:
+            case "ini":
+                return IniConfig()
+            case "cfg":
+                return CfgConfig()
+            case "txt":
+                return TxtConfig()
+            case _:
+                raise ValueError("文件不支持")
+    
     @property
     def Config(self):
         match self.file_type:
