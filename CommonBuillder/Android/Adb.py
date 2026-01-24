@@ -84,7 +84,9 @@ class Adb:
             raise Exception("端口占用")
 
     @abstractmethod
-    def get_device(self, device_id: str):
+    def get_device(self, device_id: str = None):
+        if not device_id:
+            device_id = self.get_device_names()[0]
         return Device(self.adb_path, device_id, self.max_workers)
 
 
@@ -174,6 +176,28 @@ class Device(Adb):
         async with self.semaphore:
             loop = asyncio.get_event_loop()
             return await loop.run_in_executor(self.executor, self.convertImg, img_bytes)
+
+    def launch_app(self, activity: str):
+        return self.execute(self.device_id, "shell", "am", "start", activity)
+    
+    def get_app_pid(self, package_name: str) -> str:
+        try:
+            return self.execute(self.device_id, "shell", "pidof", package_name).decode().strip()
+        except:
+            # non-zero exit code 应用未运行
+            return None
+
+    def get_app_activity(self, package_name: str) -> str:
+        running_str = self.execute(self.device_id, "shell", "dumpsys", "activity", "activities", "|", "grep", package_name).decode().strip()
+        if running_str:
+            lines = running_str.split("\n")
+            for line in lines:
+                if line.strip().startswith("mActivityComponent"):
+                    activity = line.split("=")[-1].strip()
+                    return activity
+            return None
+        else:
+            return None
 
     def convertImg(self, img_bytes) -> MatLike:
         img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_ANYCOLOR)
