@@ -7,8 +7,6 @@ from typing import Callable
 import shutil
 import re
 
-from click import File
-
 import requests
 
 
