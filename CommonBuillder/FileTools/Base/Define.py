@@ -99,3 +99,10 @@ class Data:
     def __str__(self):
         return f"<{self.__class__.__name__} {self.name}>"
     
+class DictConst(Const):
+    def __init__(self, **kwargs):
+        super().__init__()
+    
+    def __setitem__(self, name: str, value):
+        if isinstance(name, str):
+            self.__setattr__(name, value)
