@@ -81,11 +81,7 @@ class IniConfig:
                         self._configs[sec][opt] = entry
                     else:
                         entry = config.get_entry(sec, opt)
-                        entry.index = -1
-                        entry.chain = self.chain
-                        entry.prefix = self.prefix
-                        entry.other = self.other
-                        self._configs[config.path][opt] = entry
+                        self._configs[sec][opt].value = entry.value
     
     @abstractmethod
     def init_config_rule(self):
