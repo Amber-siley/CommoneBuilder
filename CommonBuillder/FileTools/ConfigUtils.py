@@ -3,11 +3,16 @@ from abc import abstractmethod
 from copy import deepcopy
 from json import dumps, load
 from os.path import isfile
-from typing import Any, Iterator, Union
+from typing import Any, Iterator, Union, Type, TypeVar
+
+from numpy import isin
+from tomlkit import value
 
 from .File import FileManage
 
 DEFAULT_SECTION = "default"
+
+T = TypeVar("T")
 
 class Entry:
     """设置项的描述"""
@@ -193,6 +198,30 @@ class IniConfig:
         """通过索引获取section 和 option的名称"""
         return self._index_to_location[index]
 
+    def trans_entity_dict(self, cls: Type[T]) -> dict[str, T]:
+        """转换为指定类型"""
+        ans = {}
+        for sec, options in self._configs.items():
+            entity = cls()
+            for opt, entry in options.items():
+                if opt in entity.__dict__.keys():
+                    entity.__setattr__(opt, entry.value)
+            ans[sec] = entity
+        return ans
+    
+    @staticmethod
+    def trans_entity(cls: Type[T], entrys: list[Entry] | dict[str, str]) -> T:
+        entity = cls()
+        if isinstance(entrys, dict):
+            for key, value in entrys.items():
+                if key in cls.__dict__.keys():
+                    entity.__setattr__(key, value)
+            return entity
+        if isinstance(entrys, list):
+            for entry in entrys:
+                if entry.conf in cls.__dict__.keys():
+                    entity.__setattr__(entry.conf, entry.value)
+            return entity
 
 class CfgConfig(IniConfig):
     """
