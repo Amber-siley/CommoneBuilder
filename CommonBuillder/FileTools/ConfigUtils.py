@@ -5,9 +5,6 @@ from json import dumps, load
 from os.path import isfile
 from typing import Any, Iterator, Union, Type, TypeVar
 
-from numpy import isin
-from tomlkit import value
-
 from .File import FileManage
 
 DEFAULT_SECTION = "default"
