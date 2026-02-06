@@ -24,6 +24,10 @@ class Const:
     @property
     def __index__(self) -> int:
         return Const._instances_index[self]
+    
+    @__index__.setter
+    def __index__(self, value: int):
+        Const._instances_index[self] = value
 
     def items(self):
         return self.__const__.items()
