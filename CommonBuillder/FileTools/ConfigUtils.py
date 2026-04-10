@@ -2,7 +2,8 @@ import re
 from abc import abstractmethod
 from copy import deepcopy
 from json import dumps, load
-from os.path import isfile
+from os.path import isfile, exists, dirname
+from os import makedirs
 from typing import Any, Iterator, Union, Type, TypeVar
 
 from .File import FileManage
@@ -51,7 +52,7 @@ class IniConfig:
         self.path = path
         self._configs: dict[str, dict[str, Entry]] = {}
         self._index_to_location: dict[int, dict[str, str]] = {}
-        if path:
+        if path and exists(path):
             self.init_configs()
         self._change_index = set()
         self._fistword_jumpstrs = ["\n"]
@@ -147,31 +148,114 @@ class IniConfig:
         self._configs[sec][opt].value = str(val).lower()
         self._change_index.update([self._configs[sec][opt].index])
 
-    def get_add_entrys(self) -> Iterator[Entry]:
-        """获取新增的配置项"""
-        return iter([
-            self._configs[sec][opt]
-            for sec in self._configs.keys()
-            for opt in self._configs[sec].keys()
-            if self._configs[sec][opt].index == -1
-        ])
+    def remove_config(self, sec: str = DEFAULT_SECTION, opt: str = None):
+        """删除配置项
+        - sec: section
+        - opt: option
+        """
+        if not opt:
+            raise ValueError("参数错误")
+        if sec in self._configs.keys() and opt in self._configs[sec].keys():
+            entry = self._configs[sec][opt]
+            # 如果是已保存的配置项，记录其索引以便删除
+            if entry.index >= 0:
+                # 标记为需要删除（使用负值但不是-1）
+                entry.index = -2
+                self._change_index.update([-2])
+            # 从配置字典中删除
+            del self._configs[sec][opt]
+            # 如果section为空，删除section
+            if not self._configs[sec]:
+                del self._configs[sec]
+
+    def get_add_entrys(self) -> dict[str, dict[str, Entry]]:
+        """获取新增的配置项，返回字典结构 {section: {option: Entry}}"""
+        result = {}
+        for sec in self._configs.keys():
+            for opt in self._configs[sec].keys():
+                if self._configs[sec][opt].index == -1:
+                    if sec not in result:
+                        result[sec] = {}
+                    result[sec][opt] = self._configs[sec][opt]
+        return result
+
+    def _write_section_header(self, section: str) -> str:
+        """生成 section 标题行"""
+        return f"[{section}]\n"
+
+    def _write_all_configs(self, fp):
+        """将所有配置写入文件（用于创建新文件）"""
+        sections = list(self._configs.keys())
+        for i, section in enumerate(sections):
+            # 在非第一个section前添加空行
+            if i > 0:
+                fp.write("\n")
+            if section != DEFAULT_SECTION:
+                fp.write(self._write_section_header(section))
+            for option, entry in self._configs[section].items():
+                fp.write(str(entry) + "\n")
 
     def save(self):
         """保存文件，简单粗暴的设置方法（指正：替换方法）"""
+        if not self.path:
+            raise ValueError("未指定文件路径，无法保存")
+
+        # 确保目录存在
+        file_dir = dirname(self.path)
+        if file_dir and not exists(file_dir):
+            makedirs(file_dir, exist_ok=True)
+
+        # 如果文件不存在或有删除操作，直接重写整个文件
+        if not exists(self.path) or -2 in self._change_index:
+            with open(self.path, "w", encoding="utf-8") as wp:
+                self._write_all_configs(wp)
+            self._change_index.clear()
+            # 重新索引
+            self.init_configs()
+            return
+
+        # 如果文件存在，读取原有内容
         with open(self.path, "r", encoding="utf-8") as fp:
             lines = fp.readlines()
 
         with open(self.path, "w", encoding="utf-8") as wp:
             try:
-                add_entrys = self.get_add_entrys()
+                # 先处理已存在的配置项的修改
                 for i in list(self._change_index):
-                    if (i < 0):
-                        opt = next(add_entrys).conf
-                        sec = DEFAULT_SECTION
-                        lines.append(str(self.get_entry(sec, opt)))
-                    else:
+                    if i >= 0:  # 已存在的配置项
                         sec, opt = self.get_location(i)
-                        lines[i] = str(self.get_entry(sec, opt))
+                        lines[i] = str(self.get_entry(sec, opt)) + "\n"
+
+                # 然后处理新增的配置项
+                add_entrys = self.get_add_entrys()
+                for sec in add_entrys.keys():
+                    # 查找该section在文件中的位置
+                    section_found = False
+                    insert_position = len(lines)
+                    max_idx = -1
+
+                    # 查找section的最后一个配置项位置
+                    for idx, (section_name, _) in self._index_to_location.items():
+                        if section_name == sec:
+                            section_found = True
+                            if idx > max_idx:
+                                max_idx = idx
+
+                    if section_found:
+                        insert_position = max_idx + 1
+
+                    # 如果section不存在，需要添加section标题
+                    if not section_found and sec != DEFAULT_SECTION:
+                        lines.append(self._write_section_header(sec))
+                        insert_position = len(lines)
+
+                    # 添加新配置项
+                    for opt, entry in add_entrys[sec].items():
+                        if insert_position <= len(lines):
+                            lines.insert(insert_position, str(entry) + "\n")
+                            insert_position += 1
+
+                self._change_index.clear()  # 清空变更索引
 
             finally:
                 for i in lines:
@@ -238,6 +322,24 @@ class CfgConfig(IniConfig):
         self._option_rule = r"(?P<prefix>\s*\w:)(?P<option>.*[^\s])(?P<chain>\s*=\s*)(?P<value>.*[^\s])(?P<other>\s*)"
         self._fistword_jumpstrs = ["\n", "#"]
 
+    def _write_section_header(self, section: str) -> str:
+        """生成 section 标题行（cfg 格式）"""
+        return f"{section} {{\n"
+
+    def _write_all_configs(self, fp):
+        """将所有配置写入文件（cfg 格式）"""
+        sections = list(self._configs.keys())
+        for i, section in enumerate(sections):
+            # 在非第一个section前添加空行
+            if i > 0:
+                fp.write("\n")
+            if section != DEFAULT_SECTION:
+                fp.write(self._write_section_header(section))
+            for option, entry in self._configs[section].items():
+                fp.write("    " + str(entry) + "\n")
+            if section != DEFAULT_SECTION:
+                fp.write("}")
+
 
 class TxtConfig(IniConfig):
     """
@@ -260,16 +362,49 @@ class TxtConfig(IniConfig):
 class JsonConfig:
     def __init__(self, path) -> None:
         self.path = path
-        self._configs: dict = load(open(self.path))
+        if exists(path):
+            self._configs: dict = load(open(self.path))
+        else:
+            self._configs: dict = {}
+
+    def configs(self) -> dict:
+        """返回配置字典"""
+        return deepcopy(self._configs)
 
     def set_config(self, sec: str | tuple, opt: str, value: Any):
         """设置配置项"""
         option = self.get_config(sec)
         option[opt] = value
 
+    def add_section(self, sec: str | tuple, initial_value: Any = None):
+        """添加配置节"""
+        if initial_value is None:
+            initial_value = {}
+
+        if isinstance(sec, str):
+            self._configs[sec] = initial_value
+        elif isinstance(sec, tuple):
+            tmp = self._configs
+            for i, key in enumerate(sec):
+                if i == len(sec) - 1:
+                    tmp[key] = initial_value
+                else:
+                    if key not in tmp:
+                        tmp[key] = {}
+                    tmp = tmp[key]
+
     def save(self):
+        """保存 JSON 配置文件"""
+        if not self.path:
+            raise ValueError("未指定文件路径，无法保存")
+
+        # 确保目录存在
+        file_dir = dirname(self.path)
+        if file_dir and not exists(file_dir):
+            makedirs(file_dir, exist_ok=True)
+
         with open(self.path, "w", encoding="utf-8") as fp:
-            fp.write(dumps(self._configs, indent=4))
+            fp.write(dumps(self._configs, indent=4, ensure_ascii=False))
 
     def get_config(self, sec: str | tuple) -> Any:
         """获取配置项值"""
@@ -280,6 +415,19 @@ class JsonConfig:
             for key in sec:
                 tmp = tmp[key]
             return tmp
+
+    def merge(self, *args: "JsonConfig"):
+        """合并多个 JSON 配置"""
+        for config in args:
+            self._deep_merge(self._configs, config.configs())
+
+    def _deep_merge(self, target: dict, source: dict):
+        """深度合并字典"""
+        for key, value in source.items():
+            if key in target and isinstance(target[key], dict) and isinstance(value, dict):
+                self._deep_merge(target[key], value)
+            else:
+                target[key] = value
 
 
 class Config:
@@ -294,6 +442,7 @@ class Config:
 
     @staticmethod
     def void_config(type: str):
+        """创建一个空的配置对象（不绑定文件）"""
         match type:
             case "ini":
                 return IniConfig()
@@ -303,7 +452,45 @@ class Config:
                 return TxtConfig()
             case _:
                 raise ValueError("文件不支持")
-    
+
+    @staticmethod
+    def create_config(path: str, type: str = None):
+        """创建一个新的配置文件
+
+        Args:
+            path: 配置文件路径
+            type: 配置文件类型（ini/cfg/txt/json），如果不指定则根据文件扩展名推断
+
+        Returns:
+            对应类型的配置对象
+        """
+        if not type:
+            # 根据文件扩展名推断类型
+            if path.endswith('.ini'):
+                type = 'ini'
+            elif path.endswith('.cfg'):
+                type = 'cfg'
+            elif path.endswith('.txt'):
+                type = 'txt'
+            elif path.endswith('.json'):
+                type = 'json'
+            else:
+                raise ValueError(f"无法推断文件类型，请明确指定 type 参数")
+
+        match type:
+            case "ini":
+                config = IniConfig(path=path)
+            case "cfg":
+                config = CfgConfig(path=path)
+            case "txt":
+                config = TxtConfig(path=path)
+            case "json":
+                config = JsonConfig(path=path)
+            case _:
+                raise ValueError(f"不支持的文件类型: {type}")
+
+        return config
+
     @property
     def Config(self):
         match self.file_type:
