@@ -3,9 +3,11 @@ from os.path import split as split_path
 from os import getcwd, makedirs, unlink, rename, listdir, walk
 from zipfile import ZipFile
 from typing import Callable
+from pathlib import Path
 
 import shutil
 import re
+import inspect
 
 import requests
 
@@ -41,6 +43,19 @@ class FileManage:
 
     def join_p(self, *args):
         return join(self.work_path, *args)
+    
+    @staticmethod
+    def get_obj_relative_path(path, obj: object) -> Path:
+        path = Path(path)
+        if path.is_absolute():
+            return path
+        base_path = getattr(obj, "_BASE_PATH", None)
+        if base_path is not None:
+            subclass_path = Path(base_path)
+        else:
+            subclass_path = Path(inspect.getfile(obj.__class__))
+        resolved_path = (subclass_path.parent / path).resolve()
+        return resolved_path
 
     @staticmethod
     def join(path, *args, seq="/"):
