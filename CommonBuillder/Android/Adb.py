@@ -3,14 +3,16 @@ import base64
 import math
 import os
 import time
-from pdb import run
 import subprocess
+
 from abc import abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 import cv2
+import uiautomator2 as u2
 import numpy as np
+
 from cv2.typing import MatLike
 
 from ..FileTools.File import FileManage, UrlManage
@@ -23,6 +25,7 @@ class Adb:
         self.adb_path = FileManage(adb_path).file_path if adb_path else None
         self.max_workers = max_workers
         self.connect_port = connect_port
+        self.u2_device = None
         self.executor = ThreadPoolExecutor(max_workers=max_workers)
         self.semaphore = asyncio.Semaphore(max_workers)
         self.startupinfo = subprocess.STARTUPINFO()
@@ -38,12 +41,16 @@ class Adb:
     def ready_env(self):
         if self.adb_path:
             self.connenct(self.connect_port)
-            return
-        unzip_path = FileManage(UrlManage.dowload(self.ADB_TOOLS_URL)).unzip(
-            retain=False
-        )
-        self.adb_path = os.path.join(unzip_path, "adb.exe")
-        self.connenct(self.connect_port)
+        else:
+            unzip_path = FileManage(UrlManage.dowload(self.ADB_TOOLS_URL)).unzip(
+                retain=False
+            )
+            self.adb_path = os.path.join(unzip_path, "adb.exe")
+            self.connenct(self.connect_port)
+        try:
+            self.u2_device = u2.connect(f"127.0.0.1:{self.connect_port}")
+        except Exception as e:
+            self.u2_device = None
 
     def connenct(self, port: int):
         cmd = [self.adb_path, "connect", f"127.0.0.1:{port}"]
@@ -88,7 +95,7 @@ class Adb:
     def get_device(self, device_id: str = None):
         if not device_id:
             device_id = self.get_device_names()[0]
-        return Device(self.adb_path, device_id, self.max_workers)
+        return Device(self.adb_path, device_id, self.connect_port, self.max_workers)
 
 
 class ScreenCut:
@@ -145,8 +152,8 @@ class MatchTempleteDetailInfo:
 class Device(Adb):
     size = None
 
-    def __init__(self, adb_path: str, device_id: str, max_workers: int = 10):
-        super().__init__(adb_path, max_workers)
+    def __init__(self, adb_path: str, device_id: str, connect_port: int = 7555, max_workers: int = 10):
+        super().__init__(adb_path, connect_port, max_workers)
         self.device_id = device_id
         self.size = self.getScreenSize()
 
@@ -166,6 +173,8 @@ class Device(Adb):
         return img
 
     def screenshot(self):
+        if self.u2_device:
+            return self.u2_device.screenshot(format="opencv")
         img_bytes = self.execute(self.device_id, "exec-out", "screencap", "-p")
         img = self.convertImg(img_bytes)
         return img
