@@ -2,6 +2,7 @@ import asyncio
 import base64
 import math
 import os
+import time
 from pdb import run
 import subprocess
 from abc import abstractmethod
@@ -220,9 +221,11 @@ class Device(Adb):
         base64_image = base64.b64encode(image_bytes).decode('utf-8')
         return base64_image
 
-    def show_img(self, img: MatLike):
-        cv2.namedWindow("test", cv2.WINDOW_NORMAL)
-        cv2.imshow("test", img)
+    @staticmethod
+    def show_img(img: MatLike):
+        name = str(time.monotonic_ns())
+        cv2.namedWindow(name, cv2.WINDOW_NORMAL)
+        cv2.imshow(name, img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
