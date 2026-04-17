@@ -152,9 +152,9 @@ class MatchTempleteDetailInfo:
 class Device(Adb):
     size = None
 
-    def __init__(self, adb_path: str, device_id: str, connect_port: int = 7555, max_workers: int = 10):
+    def __init__(self, adb_path: str, device_id: str = None, connect_port: int = 7555, max_workers: int = 10):
         super().__init__(adb_path, connect_port, max_workers)
-        self.device_id = device_id
+        self.device_id = device_id if device_id else self.get_device_names()[0]
         self.size = self.getScreenSize()
 
     @property
