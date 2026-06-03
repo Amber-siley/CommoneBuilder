@@ -95,7 +95,7 @@ class IniConfig:
         - _option_rule: 匹配option的正则表达式，匹配组名【option，chain，value，prefix，other】
         - _fistword_jumpstrs: list[] 每行的第一个字符在其中则跳过"""
         self._section_rule = r"\[(?P<section>.*[^\s])\]"
-        self._option_rule = r"(?P<prefix>)(?P<option>.*[^\s])(?P<chain>\s*=\s*)(?P<value>.*[^\s])(?P<other>\s*)"
+        self._option_rule = r"(?P<prefix>)(?P<option>.*[^\s])(?P<chain>\s*=\s*)(?P<value>.*[^\s])(?P<other>[^\S\r\n]*)"
         self._fistword_jumpstrs = ["\n", ";"]
 
     def init_configs(self):
@@ -137,7 +137,7 @@ class IniConfig:
         - opt: option
         - val: value
         """
-        if not opt or not val:
+        if opt is None or val is None:
             raise ValueError("参数错误")
         if sec not in self._configs.keys():
             self._configs[sec] = {}
@@ -261,6 +261,9 @@ class IniConfig:
                 for i in lines:
                     wp.write(i)
 
+        # 重新索引，确保后续保存能正确识别已有条目
+        self.init_configs()
+
     def get_config(self, sec: str = DEFAULT_SECTION, opt: str = None) -> str:
         """- sec: section
         - opt: option_
@@ -295,12 +298,12 @@ class IniConfig:
         entity = cls()
         if isinstance(entrys, dict):
             for key, value in entrys.items():
-                if key in cls.__dict__.keys():
+                if key in entity.__dict__:
                     entity.__setattr__(key, value)
             return entity
         if isinstance(entrys, list):
             for entry in entrys:
-                if entry.conf in cls.__dict__.keys():
+                if entry.conf in entity.__dict__:
                     entity.__setattr__(entry.conf, entry.value)
             return entity
 
@@ -319,7 +322,7 @@ class CfgConfig(IniConfig):
 
     def init_config_rule(self):
         self._section_rule = r"(?P<section>.*[^\s])\s*\{"
-        self._option_rule = r"(?P<prefix>\s*\w:)(?P<option>.*[^\s])(?P<chain>\s*=\s*)(?P<value>.*[^\s])(?P<other>\s*)"
+        self._option_rule = r"(?P<prefix>\s*\w:)(?P<option>.*[^\s])(?P<chain>\s*=\s*)(?P<value>.*[^\s])(?P<other>[^\S\r\n]*)"
         self._fistword_jumpstrs = ["\n", "#"]
 
     def _write_section_header(self, section: str) -> str:
@@ -355,7 +358,7 @@ class TxtConfig(IniConfig):
 
     def init_config_rule(self):
         self._section_rule = r"^\[(?P<section>.*[^\s])\]$"
-        self._option_rule = r"(?P<prefix>)(?P<option>[^\n:]*[^\s])(?P<chain>\s*:\s*)(?P<value>.*[^\s])(?P<other>\s*)"
+        self._option_rule = r"(?P<prefix>)(?P<option>[^\n:]*[^\s])(?P<chain>\s*:\s*)(?P<value>.*[^\s])(?P<other>[^\S\r\n]*)"
         self._fistword_jumpstrs = ["\n", "/"]
 
 

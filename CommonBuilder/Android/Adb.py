@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import logging
 import math
 import os
 import time
@@ -21,7 +22,8 @@ from ..FileTools.File import FileManage, UrlManage
 class Adb:
     ADB_TOOLS_URL = "https://googledownloads.cn/android/repository/platform-tools-latest-windows.zip"
 
-    def __init__(self, adb_path: Optional[str] = None, connect_port: int = 7555, max_workers: int = 10):
+    def __init__(self, adb_path: Optional[str] = None, connect_port: int = 7555, max_workers: int = 10, log: Optional[logging.Logger] = None):
+        self.log = log if log else logging.getLogger(self.__class__.__name__)
         self.adb_path = FileManage(adb_path).file_path if adb_path else None
         self.max_workers = max_workers
         self.connect_port = connect_port
@@ -42,19 +44,33 @@ class Adb:
         if self.adb_path:
             self.connenct(self.connect_port)
         else:
-            unzip_path = FileManage(UrlManage.dowload(self.ADB_TOOLS_URL)).unzip(
-                retain=False
-            )
-            self.adb_path = os.path.join(unzip_path, "adb.exe")
-            self.connenct(self.connect_port)
+            self.log.debug("ADB 路径未指定，尝试自动下载 platform-tools")
+            try:
+                unzip_path = FileManage(UrlManage.dowload(self.ADB_TOOLS_URL)).unzip(
+                    retain=False
+                )
+                self.adb_path = os.path.join(unzip_path, "adb.exe")
+                self.connenct(self.connect_port)
+            except Exception as e:
+                self.log.debug(f"ADB 自动下载失败: {e}")
+                raise
+        devices = self.get_device_names()
+        if devices:
+            self.log.debug(f"ADB 连接设备: {devices}")
+        else:
+            return
         try:
-            self.u2_device = u2.connect(f"127.0.0.1:{self.connect_port}")
+            self.u2_device = u2.connect(devices[0])
+            self.log.debug("uiautomator2 连接成功")
         except Exception as e:
             self.u2_device = None
+            self.log.debug(f"uiautomator2 连接失败: {e}")
 
     def connenct(self, port: int):
         cmd = [self.adb_path, "connect", f"127.0.0.1:{port}"]
-        return self.run(cmd)
+        result = self.run(cmd)
+        self.log.debug(f"ADB connect 127.0.0.1:{port}: {result.strip()}")
+        return result
 
     async def execute_command_async(self, device_id, *command):
         async with self.semaphore:
@@ -152,10 +168,19 @@ class MatchTempleteDetailInfo:
 class Device(Adb):
     size = None
 
-    def __init__(self, adb_path: str, device_id: str = None, connect_port: int = 7555, max_workers: int = 10):
-        super().__init__(adb_path, connect_port, max_workers)
+    def __init__(self, adb_path: str, device_id: str = None, connect_port: int = 7555, max_workers: int = 10, log = None):
+        super().__init__(adb_path, connect_port, max_workers, log=log)
         self.device_id = device_id if device_id else self.get_device_names()[0]
         self.size = self.getScreenSize()
+        self._init_u2_device()
+
+    def _init_u2_device(self):
+        try:
+            self.u2_device = u2.connect(self.device_id)
+            self.log.debug(f"uiautomator2 已连接设备 {self.device_id}")
+        except Exception as e:
+            self.u2_device = None
+            self.log.debug(f"uiautomator2 连接设备 {self.device_id} 失败: {e}")
 
     @property
     def width(self) -> int:
@@ -268,7 +293,7 @@ class Device(Adb):
             self.size = (max(w, h), min(w, h))
         return self.size
 
-    def click(self, x: int, y: int):
+    def click(self, x: int | str, y: int | str):
         cmd = [
             self.adb_path,
             "-s",
@@ -281,13 +306,16 @@ class Device(Adb):
         ]
         subprocess.run(cmd, startupinfo=self.startupinfo, check=True)
 
-    def clickButton(
-        self, button: str | MatLike, per: float = 0.9, grayScreenshot: MatLike = None
-    ):
+    def clickResource(
+        self, resource: str | MatLike, per: float = 0.9, grayScreenshot: MatLike = None, index = 0
+    ) -> bool:
         locations = self.findImageCenterLocations(
-            button, per=per, grayScreenshot=grayScreenshot
+            resource, per=per, grayScreenshot=grayScreenshot
         )
-        self.click(*locations[0])
+        if (len(locations) >= index + 1):
+            self.click(*locations[index])
+            return True
+        return False
 
     def findImageCenterLocations(
         self,
@@ -295,13 +323,13 @@ class Device(Adb):
         cutPoints: tuple[tuple[int, int]] = None,
         per: float = 0.9,
         grayScreenshot: MatLike = None,
-    ) -> list[tuple[int, int]] | None:
+    ) -> list[tuple[int, int]]:
         """返回图像中心点坐标"""
         match_result = self.findImageDetail(button, cutPoints, per, grayScreenshot)
         if match_result.matched:
             return match_result.matchTempleteCenterPoints
         else:
-            return None
+            return []
 
     def findImageDetail(
         self,

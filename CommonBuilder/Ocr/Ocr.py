@@ -7,13 +7,13 @@ class OCR(PaddleOCR):
         super().__init__(**kwargs)
 
     def readtext(self, img: MatLike, det = True, rec = True, cls = False, bin = False, inv = False) -> list:
-        data = self.predict(
+        data = self.ocr(
             img,
             det=det,
             rec=rec,
             cls=cls,
-            use_angle_cls=bin,
-            box_thresh=inv
+            bin=bin,
+            inv=inv
         )
         result = []
         if all(data):

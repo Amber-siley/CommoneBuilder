@@ -79,11 +79,20 @@ class Const:
             return ans
         else:
             raise self.ConstError("还没有常量存储")
+        
+    def __contains__(self, item):
+        return item in self.__const__
 
     def __rich__(self):
         if find_spec("rich"):
             return self.toDict()
         return None
+    
+    def __bool__(self):
+        return bool(self.__const__)
+    
+    def __len__(self):
+        return len(self.__const__)
 
 class Data:
     def __set_name__(self, owner, name):
