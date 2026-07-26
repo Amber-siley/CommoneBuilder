@@ -132,7 +132,7 @@ class ScreenCut:
             return ((w * self.x, h * self.y), (w * (self.x + 1), h * (self.y + 1)))
 
 
-class MatchTempleteDetailInfo:
+class MatchTemplete:
     def __init__(
         self,
         baseGrayScreenshot: MatLike,
@@ -164,15 +164,80 @@ class MatchTempleteDetailInfo:
         )
         self.matched = True if self.matchTempletePoint else False
 
+    def transform(self, action: str):
+        parts = action.split("|", 1)
+        if len(parts) != 2:
+            return self
+        op, val_str = parts
+        try:
+            val = float(val_str)
+        except ValueError:
+            return self
+        h = self.templeteHeight
+        w = self.templeteWidth
+        shift_x, shift_y = 0, 0
+        scale_w, scale_h = 1.0, 1.0
+        edge_x0, edge_y0, edge_x1, edge_y1 = 0, 0, 0, 0
+
+        if op == "up":
+            shift_y = -int(h * val)
+        elif op == "down":
+            shift_y = int(h * val)
+        elif op == "left":
+            shift_x = -int(w * val)
+        elif op == "right":
+            shift_x = int(w * val)
+        elif op == "up-M":
+            edge_y0 = -int(val)
+        elif op == "down-M":
+            edge_y1 = int(val)
+        elif op == "left-M":
+            edge_x0 = -int(val)
+        elif op == "right-M":
+            edge_x1 = int(val)
+        elif op == "reW":
+            scale_w = val
+        elif op == "reH":
+            scale_h = val
+        else:
+            return self
+
+        new_points = []
+        new_centers = []
+        for pts, ctr in zip(self.matchTempletePoints, self.matchTempleteCenterPoints):
+            x0, y0, x1, y1 = pts[0][0], pts[0][1], pts[-1][0], pts[-1][1]
+            if edge_x0 or edge_y0 or edge_x1 or edge_y1:
+                x0 += edge_x0
+                y0 += edge_y0
+                x1 += edge_x1
+                y1 += edge_y1
+            else:
+                x0 += shift_x
+                y0 += shift_y
+                x1 += shift_x + int((x1 - x0 - shift_x) * (scale_w - 1))
+                y1 += shift_y + int((y1 - y0 - shift_y) * (scale_h - 1))
+            new_points.append(((x0, y0), (x1, y0), (x0, y1), (x1, y1)))
+            new_centers.append(((x0 + x1) // 2, (y0 + y1) // 2))
+        self.matchTempletePoints = new_points
+        self.matchTempleteCenterPoints = new_centers
+        self.matchTempleteCenterPoint = new_centers[0] if new_centers else None
+        self.matchTempletePointRanges = list(map(lambda p: (p[0], p[-1]), new_points))
+        self.matchTempletePointRange = self.matchTempletePointRanges[0] if self.matchTempletePointRanges else None
+        self.matchTempletePoint = new_points[0] if new_points else None
+        return self
 
 class Device(Adb):
     size = None
 
     def __init__(self, adb_path: str, device_id: str = None, connect_port: int = 7555, max_workers: int = 10, log = None):
         super().__init__(adb_path, connect_port, max_workers, log=log)
-        self.device_id = device_id if device_id else self.get_device_names()[0]
-        self.size = self.getScreenSize()
-        self._init_u2_device()
+        names = self.get_device_names()
+        self.device_id = device_id if device_id else (names[0] if names else None)
+        if self.device_id:
+            self.size = self.getScreenSize()
+            self._init_u2_device()
+        else:
+            self.u2_device = None
 
     def _init_u2_device(self):
         try:
@@ -304,7 +369,18 @@ class Device(Adb):
             str(x),
             str(y),
         ]
+        self.log.debug(f"执行点击命令: {cmd}")
         subprocess.run(cmd, startupinfo=self.startupinfo, check=True)
+
+    def dragAndDrop(self, x1:int, y1:int, x2:int, y2:int, duration:int = 200):
+        cmd = [self.adb_path, "-s", self.device_id, "shell", "input", "draganddrop", str(x1), str(y1), str(x2), str(y2), str(duration)]
+        self.log.debug(f"执行拖动命令: {cmd}")
+        subprocess.run(cmd, startupinfo = self.startupinfo, check = True)
+
+    def swipe(self, x1:int, y1:int, x2:int, y2:int, duration:int = 200):
+        cmd = [self.adb_path, "-s", self.device_id, "shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration)]
+        subprocess.run(cmd, startupinfo = self.startupinfo, check = True)
+        self.log.debug(f"执行滑动命令: {cmd}")
 
     def clickResource(
         self, resource: str | MatLike, per: float = 0.9, grayScreenshot: MatLike = None, index = 0
@@ -336,8 +412,8 @@ class Device(Adb):
         button: str | MatLike,
         cutPoints=None,
         per: float = 0.9,
-        grayScreenshot=None,
-    ) -> MatchTempleteDetailInfo | None:
+        grayScreenshot=None
+    ) -> MatchTemplete | None:
         """返回详细的匹配图像信息"""
         if cutPoints:
             x0, y0 = cutPoints[0]
@@ -375,7 +451,7 @@ class Device(Adb):
                 ((x + temleteWidth // 2) + x0, (y + templeteHeight // 2) + y0)
                 for x, y in zip(tmp_x, tmp_y)
             ]
-            return MatchTempleteDetailInfo(
+            return MatchTemplete(
                 baseGrayScreenshot=baseGrayScreenshot,
                 grayScreenshot=screenshot_gray,
                 templeteSize=template_gray.shape[1::-1],
@@ -383,7 +459,7 @@ class Device(Adb):
                 matchTempleteCenterPoints=matchTempleteCenterPoints,
             )
         else:
-            return MatchTempleteDetailInfo(
+            return MatchTemplete(
                 baseGrayScreenshot=baseGrayScreenshot,
                 grayScreenshot=screenshot_gray,
                 templeteSize=template_gray.shape[1::-1],

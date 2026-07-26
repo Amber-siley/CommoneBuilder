@@ -52,13 +52,13 @@ class Const:
     def __getattr__(self, name: str):
         if name in self.__const__:
             return self.__const__[name]
-        raise self.ConstError("找不到常量")
+        raise self.ConstError(f"找不到常量 {name}")
 
     def __setitem__(self, name: str, value):
         if re.search(r"\W", name) or re.match(r"\d", name):
-            raise self.ConstError("非法的常量名")
+            raise self.ConstError(f"非法的常量名 {name}")
         if name.isdigit():
-            raise self.ConstError("常量名不能是数字")
+            raise self.ConstError(f"常量名不能是数字 {name}")
         if isinstance(name, str):
             self.__setattr__(name, value)
 

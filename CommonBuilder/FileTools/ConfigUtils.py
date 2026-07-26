@@ -145,7 +145,7 @@ class IniConfig:
             self._configs[sec][opt] = Entry(
                 opt, val, -1, self.chain, self.prefix, self.other
             )
-        self._configs[sec][opt].value = str(val).lower()
+        self._configs[sec][opt].value = str(val)
         self._change_index.update([self._configs[sec][opt].index])
 
     def remove_config(self, sec: str = DEFAULT_SECTION, opt: str = None):
@@ -222,9 +222,11 @@ class IniConfig:
             try:
                 # 先处理已存在的配置项的修改
                 for i in list(self._change_index):
-                    if i >= 0:  # 已存在的配置项
+                    if i >= 0 and i < len(lines):
                         sec, opt = self.get_location(i)
                         lines[i] = str(self.get_entry(sec, opt)) + "\n"
+                    elif i >= len(lines):
+                        raise IndexError
 
                 # 然后处理新增的配置项
                 add_entrys = self.get_add_entrys()
@@ -246,6 +248,8 @@ class IniConfig:
 
                     # 如果section不存在，需要添加section标题
                     if not section_found and sec != DEFAULT_SECTION:
+                        if lines and not lines[-1].endswith("\n"):
+                            lines[-1] += "\n"
                         lines.append(self._write_section_header(sec))
                         insert_position = len(lines)
 
@@ -256,6 +260,11 @@ class IniConfig:
                             insert_position += 1
 
                 self._change_index.clear()  # 清空变更索引
+
+            except IndexError:
+                # 手动编辑过文件导致行索引失效，回退到全量写入
+                self._change_index.clear()
+                self._write_all_configs(wp)
 
             finally:
                 for i in lines:
@@ -358,7 +367,7 @@ class TxtConfig(IniConfig):
 
     def init_config_rule(self):
         self._section_rule = r"^\[(?P<section>.*[^\s])\]$"
-        self._option_rule = r"(?P<prefix>)(?P<option>[^\n:]*[^\s])(?P<chain>\s*:\s*)(?P<value>.*[^\s])(?P<other>[^\S\r\n]*)"
+        self._option_rule = r"(?P<prefix>)(?P<option>[^\n:]*[^\s])(?P<chain>[^\S\r\n]*:[^\S\r\n]*)(?P<value>.*)(?P<other>[^\S\r\n]*)"
         self._fistword_jumpstrs = ["\n", "/"]
 
 
