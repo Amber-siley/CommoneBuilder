@@ -4,6 +4,7 @@ from os import getcwd, makedirs, unlink, rename, listdir, walk
 from zipfile import ZipFile
 from typing import Callable
 from pathlib import Path
+import sys
 
 import shutil
 import re
@@ -18,16 +19,42 @@ class FileManage:
         if not path:
             self.path = getcwd()
         if isfile(self.path):
-            self.file_path = self.path
-            self.work_path = dirname(self.file_path)
-            file_infor = splitext(self.file_path)
-            self.save_path = dirname(self.file_path)
-            self.file_name = basename(self.file_path)
-            self.file_type = file_infor[-1][1:]
+            self._init_as_file()
         elif isdir(self.path):
-            self.work_path = self.path
+            self._init_as_dir()
+        elif hasattr(sys, '_MEIPASS'):
+            if not self._try_pyinstaller_paths():
+                raise FileNotFoundError("路径不存在")
         else:
             raise FileNotFoundError("路径不存在")
+
+    def _init_as_file(self):
+        self.file_path = self.path
+        self.work_path = dirname(self.file_path)
+        file_infor = splitext(self.file_path)
+        self.save_path = dirname(self.file_path)
+        self.file_name = basename(self.file_path)
+        self.file_type = file_infor[-1][1:]
+
+    def _init_as_dir(self):
+        self.work_path = self.path
+
+    def _try_pyinstaller_paths(self) -> bool:
+        meipass = sys._MEIPASS
+        for candidate in [
+            join(meipass, self.path),
+            join(meipass, self.path + "c"),
+            join(meipass, dirname(self.path)),
+        ]:
+            if isfile(candidate):
+                self.path = candidate
+                self._init_as_file()
+                return True
+            elif isdir(candidate):
+                self.path = candidate
+                self._init_as_dir()
+                return True
+        return False
 
     @staticmethod
     def isfile(path: str):
@@ -54,7 +81,11 @@ class FileManage:
             subclass_path = Path(base_path)
         else:
             subclass_path = Path(inspect.getfile(obj.__class__))
-        resolved_path = (subclass_path.parent / path).resolve()
+        if hasattr(sys, '_MEIPASS'):
+            meipass = Path(sys._MEIPASS)
+            resolved_path = (meipass / subclass_path.parent / path).resolve()
+        else:
+            resolved_path = (subclass_path.parent / path).resolve()
         return resolved_path
 
     @staticmethod
