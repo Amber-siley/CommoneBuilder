@@ -219,6 +219,7 @@ class IniConfig:
             lines = fp.readlines()
 
         with open(self.path, "w", encoding="utf-8") as wp:
+            full_rewrite = False
             try:
                 # 先处理已存在的配置项的修改
                 for i in list(self._change_index):
@@ -262,13 +263,15 @@ class IniConfig:
                 self._change_index.clear()  # 清空变更索引
 
             except IndexError:
-                # 手动编辑过文件导致行索引失效，回退到全量写入
+                # 手动编辑过文件导致行索引失效，回退到全量写入（不再追加原始行，避免文件重复）
                 self._change_index.clear()
+                full_rewrite = True
                 self._write_all_configs(wp)
 
             finally:
-                for i in lines:
-                    wp.write(i)
+                if not full_rewrite:
+                    for i in lines:
+                        wp.write(i)
 
         # 重新索引，确保后续保存能正确识别已有条目
         self.init_configs()
